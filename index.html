@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Monetag Admin Panel</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.3.0/firebase-app.js";
+    import {
+      getDatabase, ref, get, set, update, push, onValue, remove
+    } from "https://www.gstatic.com/firebasejs/11.3.0/firebase-database.js";
+
+    // =========================================================
+    // 1. FIREBASE CONFIG
+    // =========================================================
+    const firebaseConfig = {
+      apiKey: "AIzaSyAzJ184egrS5dBgjhxbJUrC7RUwOT5Gv3c",
+      authDomain: "monetag-webapp.firebaseapp.com",
+      databaseURL: "https://monetag-webapp-default-rtdb.firebaseio.com/",
+      projectId: "monetag-webapp",
+      storageBucket: "monetag-webapp.firebasestorage.app",
+      messagingSenderId: "721185625441",
+      appId: "1:721185625441:web:f93025cd4eaa0b6e8ba120",
+      measurementId: "G-W5M9JG571C"
+    };
+
+    // =========================================================
+    // 2. ADMIN TELEGRAM ID
+    // =========================================================
+    const ADMIN_TELEGRAM_ID = "1143063860";
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    window.firebaseAdmin = {
+      db, ref, get, set, update, push, onValue, remove,
+      ADMIN_TELEGRAM_ID
+    };
+  </script>
+
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;font-family:Inter,Roboto,Arial,sans-serif}
+    :root{
+      --bg:#f4f7fb;--card:#fff;--text:#172033;--muted:#718096;
+      --primary:#1687ff;--purple:#6759e8;--green:#0aa35c;
+      --red:#e5484d;--orange:#ef8b17;--border:#e6ebf2;
+    }
+    body{background:var(--bg);color:var(--text);min-height:100vh}
+    .app{display:flex;min-height:100vh}
+    .sidebar{
+      width:245px;background:#101827;color:#fff;padding:22px 15px;
+      position:fixed;left:0;top:0;bottom:0;z-index:20
+    }
+    .brand{font-size:21px;font-weight:800;padding:5px 10px 24px}
+    .brand span{color:#53a7ff}
+    .nav button{
+      width:100%;border:0;background:transparent;color:#aeb9c9;text-align:left;
+      padding:12px 13px;border-radius:11px;margin:3px 0;cursor:pointer;font-weight:700
+    }
+    .nav button.active,.nav button:hover{background:#1c2a40;color:#fff}
+    .main{margin-left:245px;width:calc(100% - 245px);padding:24px}
+    .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px}
+    .topbar h1{font-size:25px}
+    .admin-badge{background:#fff;border:1px solid var(--border);padding:9px 13px;border-radius:12px;font-size:13px}
+    .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:17px;padding:18px;box-shadow:0 5px 18px rgba(25,45,80,.05)}
+    .stat-label{font-size:12px;color:var(--muted);font-weight:800;text-transform:uppercase}
+    .stat{font-size:27px;font-weight:800;margin-top:7px}
+    .section{display:none}
+    .section.active{display:block}
+    .section-title{font-size:19px;font-weight:800;margin-bottom:13px}
+    .toolbar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+    input,select,textarea{
+      width:100%;padding:11px 12px;border:1px solid var(--border);border-radius:10px;
+      background:#fff;color:var(--text);outline:none
+    }
+    input:focus,select:focus,textarea:focus{border-color:var(--primary)}
+    .toolbar input{max-width:360px}
+    button.primary,.primary{background:var(--primary);color:#fff;border:0}
+    button.success{background:var(--green);color:#fff;border:0}
+    button.danger{background:var(--red);color:#fff;border:0}
+    button.secondary{background:#eef3f9;color:#27354a;border:1px solid var(--border)}
+    .btn{padding:9px 12px;border-radius:9px;cursor:pointer;font-weight:800}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:12px 10px;border-bottom:1px solid var(--border);text-align:left;font-size:13px}
+    th{color:var(--muted);font-size:11px;text-transform:uppercase}
+    .table-wrap{overflow:auto}
+    .pill{display:inline-block;padding:4px 8px;border-radius:99px;font-size:11px;font-weight:800}
+    .pill.green{background:#e8f8ef;color:#087b45}
+    .pill.red{background:#fdeced;color:#bd3036}
+    .pill.orange{background:#fff3df;color:#a96300}
+    .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .full{grid-column:1/-1}
+    .actions{display:flex;gap:7px;flex-wrap:wrap}
+    .empty{text-align:center;color:var(--muted);padding:28px}
+    .locked{position:fixed;inset:0;background:#101827;color:#fff;z-index:100;display:flex;align-items:center;justify-content:center;text-align:center;padding:25px}
+    .locked-box{max-width:440px}
+    .locked h2{font-size:28px;margin-bottom:10px}
+    .locked p{color:#b8c3d3;line-height:1.6}
+    .mobile-menu{display:none}
+    .toast{position:fixed;right:20px;bottom:20px;background:#172033;color:#fff;padding:12px 16px;border-radius:10px;display:none;z-index:200;font-size:13px}
+    @media(max-width:900px){
+      .grid{grid-template-columns:repeat(2,1fr)}
+      .sidebar{transform:translateX(-100%);transition:.2s}
+      .sidebar.open{transform:translateX(0)}
+      .main{margin-left:0;width:100%;padding:16px}
+      .mobile-menu{display:block;border:0;background:#101827;color:#fff;border-radius:9px;padding:9px 12px;cursor:pointer}
+    }
+    @media(max-width:600px){
+      .grid{grid-template-columns:1fr 1fr}
+      .form-grid{grid-template-columns:1fr}
+      .full{grid-column:auto}
+      .topbar h1{font-size:20px}
+    }
+  </style>
+</head>
+
+<body>
+<div id="locked" class="locked">
+  <div class="locked-box">
+    <h2>🔒 Admin Panel</h2>
+    <p id="lockText">Checking Telegram admin access...</p>
+  </div>
+</div>
+
+<aside class="sidebar" id="sidebar">
+  <div class="brand">Monetag <span>Admin</span></div>
+  <div class="nav">
+    <button class="active" data-section="dashboard">📊 Dashboard</button>
+    <button data-section="users">👥 Users</button>
+    <button data-section="withdrawals">💸 Withdrawals</button>
+    <button data-section="settings">⚙️ Settings</button>
+  </div>
+</aside>
+
+<main class="main">
+  <div class="topbar">
+    <div style="display:flex;gap:10px;align-items:center">
+      <button class="mobile-menu" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
+      <h1 id="pageTitle">Dashboard</h1>
+    </div>
+    <div class="admin-badge" id="adminInfo">Admin</div>
+  </div>
+
+  <section class="section active" id="dashboard">
+    <div class="grid">
+      <div class="card"><div class="stat-label">Total Users</div><div class="stat" id="totalUsers">0</div></div>
+      <div class="card"><div class="stat-label">Total Ads</div><div class="stat" id="totalAds">0</div></div>
+      <div class="card"><div class="stat-label">Total Points</div><div class="stat" id="totalPoints">0</div></div>
+      <div class="card"><div class="stat-label">Pending Withdrawals</div><div class="stat" id="pendingWithdrawals">0</div></div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">Quick User Control</div>
+      <div class="form-grid">
+        <div>
+          <label>Telegram User ID</label>
+          <input id="quickUserId" placeholder="e.g. 123456789">
+        </div>
+        <div>
+          <label>Points</label>
+          <input id="quickPoints" type="number" placeholder="100">
+        </div>
+        <div class="full actions">
+          <button class="btn success" onclick="changePoints(1)">➕ Add Points</button>
+          <button class="btn danger" onclick="changePoints(-1)">➖ Remove Points</button>
+          <button class="btn secondary" onclick="loadSingleUser()">🔎 Find User</button>
+        </div>
+      </div>
+      <div id="quickUserResult" style="margin-top:14px"></div>
+    </div>
+  </section>
+
+  <section class="section" id="users">
+    <div class="card">
+      <div class="section-title">Users</div>
+      <div class="toolbar">
+        <input id="userSearch" placeholder="Search Telegram ID or username..." oninput="renderUsers()">
+        <button class="btn secondary" onclick="loadUsers()">↻ Refresh</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>User</th><th>ID</th><th>Ads</th><th>Points</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="usersBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="withdrawals">
+    <div class="card">
+      <div class="section-title">Withdrawal Requests</div>
+      <div class="toolbar">
+        <select id="withdrawFilter" onchange="renderWithdrawals()" style="max-width:200px">
+          <option value="all">All</option>
+          <option value="pending">Pending</option>
+          <option value="approved">Approved</option>
+          <option value="rejected">Rejected</option>
+        </select>
+        <button class="btn secondary" onclick="loadWithdrawals()">↻ Refresh</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>User</th><th>Method</th><th>Number</th><th>Amount</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="withdrawBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="settings">
+    <div class="card">
+      <div class="section-title">App Settings</div>
+      <div class="form-grid">
+        <div>
+          <label>Minimum Withdraw Points</label>
+          <input id="minWithdraw" type="number" value="1000">
+        </div>
+        <div>
+          <label>Points Per Completed Ad</label>
+          <input id="pointsPerAd" type="number" value="1">
+        </div>
+        <div>
+          <label>Ads Enabled</label>
+          <select id="adsEnabled">
+            <option value="true">Enabled</option>
+            <option value="false">Disabled</option>
+          </select>
+        </div>
+        <div>
+          <label>Maintenance Mode</label>
+          <select id="maintenanceMode">
+            <option value="false">Off</option>
+            <option value="true">On</option>
+          </select>
+        </div>
+        <div class="full">
+          <button class="btn primary" onclick="saveSettings()">💾 Save Settings</button>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="toast" class="toast"></div>
+
+<script>
+  let users = {};
+  let withdrawals = {};
+  let settings = {};
+
+  const $ = id => document.getElementById(id);
+
+  function toast(message){
+    const t = $("toast");
+    t.textContent = message;
+    t.style.display = "block";
+    clearTimeout(window.toastTimer);
+    window.toastTimer = setTimeout(()=>t.style.display="none",2500);
+  }
+
+  function getTgUser(){
+    const tg = window.Telegram?.WebApp;
+    return tg?.initDataUnsafe?.user || null;
+  }
+
+  function isAdmin(){
+    const adminId = window.firebaseAdmin.ADMIN_TELEGRAM_ID;
+    const user = getTgUser();
+    return adminId && user && String(user.id) === String(adminId);
+  }
+
+  async function init(){
+    const tg = window.Telegram?.WebApp;
+    try{ tg?.ready(); tg?.expand(); }catch(e){}
+
+    if(!isAdmin()){
+      $("lockText").innerHTML =
+        "This Telegram account is not authorized.<br><br>" +
+        "Your current Telegram ID does not match the Admin ID.";
+      return;
+    }
+
+    $("locked").style.display = "none";
+    const admin = getTgUser();
+    $("adminInfo").textContent = admin.username ? "@"+admin.username : "ID "+admin.id;
+
+    setupNavigation();
+    await Promise.all([loadUsers(), loadWithdrawals(), loadSettings()]);
+  }
+
+  function setupNavigation(){
+    document.querySelectorAll(".nav button").forEach(btn=>{
+      btn.onclick = ()=>{
+        document.querySelectorAll(".nav button").forEach(b=>b.classList.remove("active"));
+        document.querySelectorAll(".section").forEach(s=>s.classList.remove("active"));
+        btn.classList.add("active");
+        $(btn.dataset.section).classList.add("active");
+        $("pageTitle").textContent = btn.textContent.replace(/^[^ ]+ /,"");
+        document.getElementById("sidebar").classList.remove("open");
+      };
+    });
+  }
+
+  async function loadUsers(){
+    const {db,ref,get} = window.firebaseAdmin;
+    const snap = await get(ref(db,"users"));
+    users = snap.exists() ? snap.val() : {};
+    renderUsers();
+    updateDashboard();
+  }
+
+  function renderUsers(){
+    const body = $("usersBody");
+    const q = ($("userSearch").value || "").toLowerCase().trim();
+    body.innerHTML = "";
+
+    const list = Object.entries(users).filter(([id,u])=>{
+      const text = `${id} ${u.username||""} ${u.first_name||""}`.toLowerCase();
+      return !q || text.includes(q);
+    });
+
+    if(!list.length){
+      body.innerHTML = `<tr><td colspan="6" class="empty">No users found</td></tr>`;
+      return;
+    }
+
+    list.forEach(([id,u])=>{
+      const banned = u.banned === true;
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><b>${esc(u.first_name||"Telegram User")}</b><br><small>@${esc(u.username||"")}</small></td>
+        <td>${esc(id)}</td>
+        <td>${Number(u.adsWatched||0)}</td>
+        <td><b>${Number(u.points||u.earnedPoints||0)}</b></td>
+        <td><span class="pill ${banned?"red":"green"}">${banned?"Banned":"Active"}</span></td>
+        <td>
+          <div class="actions">
+            <button class="btn secondary" onclick="editUser('${escAttr(id)}')">Edit</button>
+            <button class="btn ${banned?"success":"danger"}" onclick="toggleBan('${escAttr(id)}',${!banned})">${banned?"Unban":"Ban"}</button>
+          </div>
+        </td>`;
+      body.appendChild(tr);
+    });
+  }
+
+  async function editUser(id){
+    const u = users[id] || {};
+    const points = prompt("Set points for user "+id, Number(u.points||u.earnedPoints||0));
+    if(points === null) return;
+    const value = Number(points);
+    if(!Number.isFinite(value) || value < 0) return alert("Invalid points.");
+    await window.firebaseAdmin.update(window.firebaseAdmin.ref(window.firebaseAdmin.db,"users/"+id),{
+      points:value, earnedPoints:value
+    });
+    toast("User points updated.");
+    await loadUsers();
+  }
+
+  async function toggleBan(id,banned){
+    await window.firebaseAdmin.update(window.firebaseAdmin.ref(window.firebaseAdmin.db,"users/"+id),{banned});
+    toast(banned ? "User banned." : "User unbanned.");
+    await loadUsers();
+  }
+
+  async function loadSingleUser(){
+    const id = $("quickUserId").value.trim();
+    if(!id) return alert("Enter Telegram User ID.");
+    const snap = await window.firebaseAdmin.get(
+      window.firebaseAdmin.ref(window.firebaseAdmin.db,"users/"+id)
+    );
+    if(!snap.exists()){
+      $("quickUserResult").innerHTML = `<span class="pill red">User not found</span>`;
+      return;
+    }
+    const u = snap.val();
+    $("quickUserResult").innerHTML =
+      `<b>${esc(u.first_name||"Telegram User")}</b> @${esc(u.username||"")} | `+
+      `Points: <b>${Number(u.points||u.earnedPoints||0)}</b> | Ads: ${Number(u.adsWatched||0)}`;
+  }
+
+  async function changePoints(direction){
+    const id = $("quickUserId").value.trim();
+    const amount = Number($("quickPoints").value);
+    if(!id || !Number.isFinite(amount) || amount <= 0) return alert("Enter valid user ID and points.");
+
+    const snap = await window.firebaseAdmin.get(
+      window.firebaseAdmin.ref(window.firebaseAdmin.db,"users/"+id)
+    );
+    if(!snap.exists()) return alert("User not found.");
+
+    const u = snap.val();
+    const current = Number(u.points ?? u.earnedPoints ?? 0);
+    const next = Math.max(0,current + direction*amount);
+
+    await window.firebaseAdmin.update(window.firebaseAdmin.ref(window.firebaseAdmin.db,"users/"+id),{
+      points:next, earnedPoints:next
+    });
+    toast(direction > 0 ? "Points added." : "Points removed.");
+    await loadUsers();
+    await loadSingleUser();
+  }
+
+  async function loadWithdrawals(){
+    const snap = await window.firebaseAdmin.get(
+      window.firebaseAdmin.ref(window.firebaseAdmin.db,"withdrawals")
+    );
+    withdrawals = snap.exists() ? snap.val() : {};
+    renderWithdrawals();
+    updateDashboard();
+  }
+
+  function renderWithdrawals(){
+    const body = $("withdrawBody");
+    const filter = $("withdrawFilter").value;
+    body.innerHTML = "";
+
+    const list = Object.entries(withdrawals).filter(([id,w])=>{
+      return filter === "all" || (w.status||"pending") === filter;
+    });
+
+    if(!list.length){
+      body.innerHTML = `<tr><td colspan="6" class="empty">No withdrawal requests</td></tr>`;
+      return;
+    }
+
+    list.reverse().forEach(([id,w])=>{
+      const status = w.status || "pending";
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${esc(w.userId||id)}</td>
+        <td>${esc(w.method||"")}</td>
+        <td>${esc(w.number||"")}</td>
+        <td><b>${Number(w.amount||0)}</b></td>
+        <td><span class="pill ${status==="approved"?"green":status==="rejected"?"red":"orange"}">${esc(status)}</span></td>
+        <td>
+          ${status==="pending" ? `<div class="actions">
+            <button class="btn success" onclick="processWithdrawal('${escAttr(id)}','approved')">Approve</button>
+            <button class="btn danger" onclick="processWithdrawal('${escAttr(id)}','rejected')">Reject</button>
+          </div>` : "—"}
+        </td>`;
+      body.appendChild(tr);
+    });
+  }
+
+  async function processWithdrawal(id,status){
+    const w = withdrawals[id];
+    if(!w) return;
+
+    if(status === "rejected"){
+      await window.firebaseAdmin.update(
+        window.firebaseAdmin.ref(window.firebaseAdmin.db,"withdrawals/"+id),
+        {status,processedAt:Date.now()}
+      );
+      toast("Withdrawal rejected.");
+      await loadWithdrawals();
+      return;
+    }
+
+    if(!confirm("Approve this withdrawal?")) return;
+
+    const userId = String(w.userId||"");
+    const userSnap = await window.firebaseAdmin.get(
+      window.firebaseAdmin.ref(window.firebaseAdmin.db,"users/"+userId)
+    );
+
+    if(userSnap.exists()){
+      const u = userSnap.val();
+      const current = Number(u.points ?? u.earnedPoints ?? 0);
+      const amount = Number(w.amount||0);
+      if(current < amount){
+        alert("User does not have enough points.");
+        return;
+      }
+      const next = current - amount;
+      await window.firebaseAdmin.update(
+        window.firebaseAdmin.ref(window.firebaseAdmin.db,"users/"+userId),
+        {points:next,earnedPoints:next}
+      );
+    }
+
+    await window.firebaseAdmin.update(
+      window.firebaseAdmin.ref(window.firebaseAdmin.db,"withdrawals/"+id),
+      {status:"approved",processedAt:Date.now()}
+    );
+
+    toast("Withdrawal approved.");
+    await Promise.all([loadWithdrawals(),loadUsers()]);
+  }
+
+  async function loadSettings(){
+    const snap = await window.firebaseAdmin.get(
+      window.firebaseAdmin.ref(window.firebaseAdmin.db,"settings")
+    );
+    settings = snap.exists() ? snap.val() : {};
+    $("minWithdraw").value = settings.minWithdraw ?? 1000;
+    $("pointsPerAd").value = settings.pointsPerAd ?? 1;
+    $("adsEnabled").value = String(settings.adsEnabled ?? true);
+    $("maintenanceMode").value = String(settings.maintenanceMode ?? false);
+  }
+
+  async function saveSettings(){
+    const data = {
+      minWithdraw:Number($("minWithdraw").value)||1000,
+      pointsPerAd:Number($("pointsPerAd").value)||1,
+      adsEnabled:$("adsEnabled").value==="true",
+      maintenanceMode:$("maintenanceMode").value==="true",
+      updatedAt:Date.now()
+    };
+    await window.firebaseAdmin.set(
+      window.firebaseAdmin.ref(window.firebaseAdmin.db,"settings"),data
+    );
+    toast("Settings saved.");
+  }
+
+  function updateDashboard(){
+    const arr = Object.values(users);
+    $("totalUsers").textContent = arr.length;
+    $("totalAds").textContent = arr.reduce((s,u)=>s+Number(u.adsWatched||0),0);
+    $("totalPoints").textContent = arr.reduce((s,u)=>s+Number(u.points??u.earnedPoints??0),0);
+    $("pendingWithdrawals").textContent =
+      Object.values(withdrawals).filter(w=>(w.status||"pending")==="pending").length;
+  }
+
+  function esc(v){
+    return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));
+  }
+  function escAttr(v){return String(v??"").replace(/\\/g,"\\\\").replace(/'/g,"\\'")}
+
+  window.loadUsers=loadUsers;
+  window.renderUsers=renderUsers;
+  window.editUser=editUser;
+  window.toggleBan=toggleBan;
+  window.loadSingleUser=loadSingleUser;
+  window.changePoints=changePoints;
+  window.loadWithdrawals=loadWithdrawals;
+  window.renderWithdrawals=renderWithdrawals;
+  window.processWithdrawal=processWithdrawal;
+  window.loadSettings=loadSettings;
+  window.saveSettings=saveSettings;
+
+  window.addEventListener("load",init);
+</script>
+</body>
+</html>

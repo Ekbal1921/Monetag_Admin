@@ -8,7 +8,7 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.3.0/firebase-app.js";
     import {
-      getDatabase, ref, get, set, update, push, onValue, remove
+      getDatabase, ref, get, set, update, push, onValue, remove, runTransaction
     } from "https://www.gstatic.com/firebasejs/11.3.0/firebase-database.js";
 
     // =========================================================
@@ -27,6 +27,8 @@
 
     // =========================================================
     // 2. ADMIN TELEGRAM ID
+    // Put YOUR Telegram numeric user ID here.
+    // No separate admin login screen is used.
     // =========================================================
     const ADMIN_TELEGRAM_ID = "1143063860";
 
@@ -34,7 +36,7 @@
     const db = getDatabase(app);
 
     window.firebaseAdmin = {
-      db, ref, get, set, update, push, onValue, remove,
+      db, ref, get, set, update, push, onValue, remove, runTransaction,
       ADMIN_TELEGRAM_ID
     };
   </script>
@@ -143,6 +145,7 @@
     <div class="admin-badge" id="adminInfo">Admin</div>
   </div>
 
+  <!-- DASHBOARD -->
   <section class="section active" id="dashboard">
     <div class="grid">
       <div class="card"><div class="stat-label">Total Users</div><div class="stat" id="totalUsers">0</div></div>
@@ -172,6 +175,7 @@
     </div>
   </section>
 
+  <!-- USERS -->
   <section class="section" id="users">
     <div class="card">
       <div class="section-title">Users</div>
@@ -188,6 +192,7 @@
     </div>
   </section>
 
+  <!-- WITHDRAWALS -->
   <section class="section" id="withdrawals">
     <div class="card">
       <div class="section-title">Withdrawal Requests</div>
@@ -209,6 +214,7 @@
     </div>
   </section>
 
+  <!-- SETTINGS -->
   <section class="section" id="settings">
     <div class="card">
       <div class="section-title">App Settings</div>
@@ -268,7 +274,8 @@
   function isAdmin(){
     const adminId = window.firebaseAdmin.ADMIN_TELEGRAM_ID;
     const user = getTgUser();
-    return adminId && user && String(user.id) === String(adminId);
+    return adminId && adminId !== "YOUR_ADMIN_TELEGRAM_ID" &&
+           user && String(user.id) === String(adminId);
   }
 
   async function init(){
@@ -278,7 +285,7 @@
     if(!isAdmin()){
       $("lockText").innerHTML =
         "This Telegram account is not authorized.<br><br>" +
-        "Your current Telegram ID does not match the Admin ID.";
+        "Set <b>ADMIN_TELEGRAM_ID</b> in admin.html to your Telegram numeric ID.";
       return;
     }
 
@@ -448,45 +455,74 @@
     const w = withdrawals[id];
     if(!w) return;
 
-    if(status === "rejected"){
-      await window.firebaseAdmin.update(
-        window.firebaseAdmin.ref(window.firebaseAdmin.db,"withdrawals/"+id),
-        {status,processedAt:Date.now()}
-      );
-      toast("Withdrawal rejected.");
-      await loadWithdrawals();
+    const withdrawalRef = window.firebaseAdmin.ref(window.firebaseAdmin.db,"withdrawals/"+id);
+    const currentStatus = w.status || "pending";
+
+    if(currentStatus !== "pending") {
+      toast("This withdrawal was already processed.");
       return;
     }
 
-    if(!confirm("Approve this withdrawal?")) return;
-
-    const userId = String(w.userId||"");
-    const userSnap = await window.firebaseAdmin.get(
-      window.firebaseAdmin.ref(window.firebaseAdmin.db,"users/"+userId)
-    );
-
-    if(userSnap.exists()){
-      const u = userSnap.val();
-      const current = Number(u.points ?? u.earnedPoints ?? 0);
-      const amount = Number(w.amount||0);
-      if(current < amount){
-        alert("User does not have enough points.");
-        return;
-      }
-      const next = current - amount;
-      await window.firebaseAdmin.update(
-        window.firebaseAdmin.ref(window.firebaseAdmin.db,"users/"+userId),
-        {points:next,earnedPoints:next}
-      );
+    const amount = Number(w.amount || 0);
+    const userId = String(w.userId || "");
+    if(!userId || !Number.isFinite(amount) || amount <= 0){
+      alert("Invalid withdrawal data.");
+      return;
     }
 
-    await window.firebaseAdmin.update(
-      window.firebaseAdmin.ref(window.firebaseAdmin.db,"withdrawals/"+id),
-      {status:"approved",processedAt:Date.now()}
-    );
+    if(status === "rejected"){
+      if(!confirm("Reject this withdrawal and refund the reserved points?")) return;
 
-    toast("Withdrawal approved.");
-    await Promise.all([loadWithdrawals(),loadUsers()]);
+      const userRef = window.firebaseAdmin.ref(window.firebaseAdmin.db,"users/"+userId);
+      const result = await window.firebaseAdmin.runTransaction(userRef, (u) => {
+        if(!u) return u;
+        const current = Number(u.points ?? u.earnedPoints ?? 0);
+        const reserved = Number(u.reservedPoints || 0);
+        const refund = Math.min(amount, reserved);
+        const nextReserved = Math.max(0, reserved - refund);
+        const nextPoints = current + refund;
+        return {...u, points:nextPoints, earnedPoints:nextPoints, reservedPoints:nextReserved, updatedAt:Date.now()};
+      });
+      if(!result.committed){ alert("Could not refund points."); return; }
+
+      const statusResult = await window.firebaseAdmin.runTransaction(withdrawalRef, (value) => {
+        if(!value || (value.status || "pending") !== "pending") return;
+        return {...value, status:"rejected", processedAt:Date.now()};
+      });
+      if(!statusResult.committed){
+        alert("Withdrawal status changed before completion. Please refresh and verify.");
+        return;
+      }
+      toast("Withdrawal rejected and points refunded.");
+      await Promise.all([loadWithdrawals(),loadUsers()]);
+      return;
+    }
+
+    if(status === "approved") {
+      if(!confirm("Approve this withdrawal? Points are already reserved and will NOT be deducted again.")) return;
+
+      const statusResult = await window.firebaseAdmin.runTransaction(withdrawalRef, (value) => {
+        if(!value || (value.status || "pending") !== "pending") return;
+        return {...value, status:"approved", processedAt:Date.now()};
+      });
+      if(!statusResult.committed){
+        toast("This withdrawal was already processed.");
+        await loadWithdrawals();
+        return;
+      }
+
+      // Points were reserved when the user created the request.
+      // Only release the reservation here; do NOT deduct points again.
+      const userRef = window.firebaseAdmin.ref(window.firebaseAdmin.db,"users/"+userId);
+      await window.firebaseAdmin.runTransaction(userRef, (u) => {
+        if(!u) return u;
+        const reserved = Number(u.reservedPoints || 0);
+        return {...u, reservedPoints:Math.max(0, reserved - amount), updatedAt:Date.now()};
+      });
+
+      toast("Withdrawal approved.");
+      await Promise.all([loadWithdrawals(),loadUsers()]);
+    }
   }
 
   async function loadSettings(){
